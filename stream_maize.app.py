@@ -1,79 +1,76 @@
 import streamlit as st
 import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestRegressor
+import joblib
+import os
 
-# -----------------------------
-# Page config
-# -----------------------------
-st.set_page_config(page_title="Malawi Maize Yield Predictor 🌽", layout="centered")
+# Set page title
+st.set_page_config(page_title="Malawi Maize Yield Predictor", page_icon="🌽")
+
+# Title
 st.title("🌽 Malawi Maize Yield Predictor")
-st.markdown("Predict **maize yield (kg/ha)** based on simple farm details.")
+st.write("Provide basic farm details to estimate **yield (kg/ha)**.")
 
-# -----------------------------
-# Load and filter dataset
-# -----------------------------
-@st.cache_data
-def load_data():
-    df = pd.read_csv("synthetic_malawi_maize.csv")
-    df = df[(df["Year"] >= 2011) & (df["Year"] <= 2025)]  # Only recent data
-    return df
+# Load the model
+MODEL_PATH = "improved_rf_yield_model.pkl"  # Change this if you're using a different model file name
+model = joblib.load(MODEL_PATH)
 
-df = load_data()
+# Collect user inputs
+with st.form("yield_form"):
+    st.subheader("Farm Inputs")
 
-# -----------------------------
-# Optional: Show data sample
-# -----------------------------
-if st.checkbox("📊 Show sample training data used"):
-    st.write(df.head())
+    year = st.selectbox("Year", list(range(2011, 2026))[::-1])
 
-# -----------------------------
-# Preprocess
-# -----------------------------
-df = pd.get_dummies(df, columns=["Maize_Type"], drop_first=True)
-X = df.drop("Yield_kg_ha", axis=1)
-y = df["Yield_kg_ha"]
+    maize_type = st.selectbox("Type of Maize", ["Hybrid", "Local", "OPV"])
+    region = st.selectbox("Region", ["Northern", "Central", "Southern"])
+    soil_quality = st.selectbox("Soil Quality", ["Poor", "Average", "Excellent"])
+    fertilizer_type = st.selectbox("Fertilizer Type", ["Organic", "Inorganic", "Mixed"])
 
-# -----------------------------
-# Train model
-# -----------------------------
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-model = RandomForestRegressor(n_estimators=100, random_state=42)
-model.fit(X_train, y_train)
+    irrigated = st.radio("Is the farm irrigated?", ["Yes", "No"])
+    rotation = st.radio("Do you practice crop rotation?", ["Yes", "No"])
 
-# -----------------------------
-# Input form
-# -----------------------------
-st.subheader("📋 Enter Farm Details")
+    farmer_experience = st.slider("Farmer Experience (years)", 0, 40, 5)
+    area = st.slider("Farm Size (ha)", 0.1, 10.0, 1.0)
+    rainfall = st.slider("Estimated Rainfall (mm)", 300, 2000, 1000)
+    temperature = st.slider("Average Temperature (°C)", 18.0, 35.0, 25.0)
+    fertilizer_kg_ha = st.slider("Fertilizer Used (kg/ha)", 0, 500, 150)
 
-year = st.selectbox("Year", sorted(df["Year"].unique()), index=len(df["Year"].unique()) - 1)
-maize_type = st.selectbox("Maize Type", ["Local", "Hybrid"])
-area = st.slider("Area Cultivated (ha)", 0.1, 10.0, 1.5, 0.1)
-rainfall = st.slider("Estimated Rainfall (mm)", 500, 1500, 1000, 10)
-temp = st.slider("Estimated Avg Temperature (°C)", 20.0, 30.0, 25.0, 0.1)
-fert = st.slider("Fertilizer Usage (kg/ha)", 0, 200, 80, 5)
+    submitted = st.form_submit_button("📈 Predict Yield")
 
-# -----------------------------
-# Format input for prediction
-# -----------------------------
-input_data = pd.DataFrame([{
-    "Year": year,
-    "Area_Cultivated_ha": area,
-    "Rainfall_mm": rainfall,
-    "Avg_Temp_C": temp,
-    "Fertilizer_kg_ha": fert,
-    "Maize_Type_Hybrid": 1 if maize_type == "Hybrid" else 0
-}])
+# When form is submitted
+if submitted:
+    # Convert binary fields
+    irrigated_bin = 1 if irrigated == "Yes" else 0
+    rotation_bin = 1 if rotation == "Yes" else 0
 
-# -----------------------------
-# Predict
-# -----------------------------
-if st.button("Predict Yield"):
-    prediction = model.predict(input_data)[0]
-    st.success(f"🌾 Estimated Yield: **{prediction:.2f} kg/ha**")
+    # Create input DataFrame with correct feature order
+    input_data = pd.DataFrame([{
+        "Year": year,
+        "Maize_Type": maize_type,
+        "Region": region,
+        "Soil_Quality": soil_quality,
+        "Fertilizer_Type": fertilizer_type,
+        "Irrigated": irrigated_bin,
+        "Crop_Rotation": rotation_bin,
+        "Farmer_Experience": farmer_experience,
+        "Area_ha": area,
+        "Rainfall_mm": rainfall,
+        "Avg_Temp_C": temperature,
+        "Fertilizer_kg_ha": fertilizer_kg_ha
+    }])
 
-# -----------------------------
-# Footer
-# -----------------------------
-st.markdown("---")
-st.caption("Built with ❤️ using Streamlit · Data: Synthetic for demonstration purposes only.")
+    # Ensure the feature columns are in the same order as model expects
+    expected_columns = [
+        "Year", "Maize_Type", "Region", "Soil_Quality",
+        "Fertilizer_Type", "Irrigated", "Crop_Rotation",
+        "Farmer_Experience", "Area_ha", "Rainfall_mm",
+        "Avg_Temp_C", "Fertilizer_kg_ha"
+    ]
+
+    input_data = input_data[expected_columns]
+
+    # Make prediction
+    try:
+        prediction = model.predict(input_data)[0]
+        st.success(f"✅ Estimated Yield: **{prediction:.2f} kg/ha**")
+    except Exception as e:
+        st.error(f"❌ Prediction failed: {str(e)}")
